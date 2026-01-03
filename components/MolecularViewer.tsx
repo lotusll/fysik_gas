@@ -21,30 +21,28 @@ export const MolecularViewer: React.FC<MolecularViewerProps> = ({
   const [particles, setParticles] = useState<Particle[]>([]);
   const requestRef = useRef<number>();
   
-  // Calculate kinetic energy based on temperature
-  const energyFactor = (temperature + 273.15) / 300; // Normalized around room temp
+  // Normalized kinetic energy
+  const energyFactor = Math.max(0.1, (temperature + 273.15) / 293.15); 
 
   const initParticles = useCallback(() => {
-    const count = 40;
+    const count = state === MatterState.GAS ? 25 : 45; 
     const newParticles: Particle[] = [];
-    const rows = 5;
-    const cols = 8;
     
     for (let i = 0; i < count; i++) {
       newParticles.push({
         id: i,
-        x: Math.random() * width,
-        y: Math.random() * height,
-        vx: (Math.random() - 0.5) * 2,
-        vy: (Math.random() - 0.5) * 2
+        x: Math.random() * (width - PHYSICS.PARTICLE_RADIUS * 2) + PHYSICS.PARTICLE_RADIUS,
+        y: Math.random() * (height - PHYSICS.PARTICLE_RADIUS * 2) + PHYSICS.PARTICLE_RADIUS,
+        vx: (Math.random() - 0.5) * 4,
+        vy: (Math.random() - 0.5) * 4
       });
     }
     setParticles(newParticles);
-  }, [width, height]);
+  }, [width, height, state]);
 
   useEffect(() => {
     initParticles();
-  }, [initParticles]);
+  }, [state]); 
 
   const update = useCallback(() => {
     setParticles(prev => prev.map(p => {
@@ -53,21 +51,19 @@ export const MolecularViewer: React.FC<MolecularViewerProps> = ({
       let nvx = p.vx;
       let nvy = p.vy;
 
-      // Behavior based on state
       if (state === MatterState.SOLID) {
-        // Particles vibrate in place
-        const originX = (p.id % 8) * (width / 8) + (width / 16);
-        const originY = Math.floor(p.id / 8) * (height / 5) + (height / 10);
-        nx = originX + (Math.sin(Date.now() * 0.01 * energyFactor + p.id) * 2);
-        ny = originY + (Math.cos(Date.now() * 0.01 * energyFactor + p.id) * 2);
+        const cols = 7;
+        const originX = (p.id % cols) * (width / cols) + (width / (cols * 2));
+        const originY = Math.floor(p.id / cols) * (height / 7) + (height / 14);
+        const intensity = 1.2 * energyFactor;
+        nx = originX + (Math.sin(Date.now() * 0.015 * energyFactor + p.id) * intensity);
+        ny = originY + (Math.cos(Date.now() * 0.015 * energyFactor + p.id) * intensity);
       } else {
-        // Bouncing logic
-        if (nx < PHYSICS.PARTICLE_RADIUS || nx > width - PHYSICS.PARTICLE_RADIUS) nvx *= -1;
-        if (ny < PHYSICS.PARTICLE_RADIUS || ny > height - PHYSICS.PARTICLE_RADIUS) nvy *= -1;
-        
-        // Keep within bounds if state changed
-        nx = Math.max(PHYSICS.PARTICLE_RADIUS, Math.min(width - PHYSICS.PARTICLE_RADIUS, nx));
-        ny = Math.max(PHYSICS.PARTICLE_RADIUS, Math.min(height - PHYSICS.PARTICLE_RADIUS, ny));
+        // Collisions with moving boundaries
+        if (nx < PHYSICS.PARTICLE_RADIUS) { nx = PHYSICS.PARTICLE_RADIUS; nvx *= -1; }
+        if (nx > width - PHYSICS.PARTICLE_RADIUS) { nx = width - PHYSICS.PARTICLE_RADIUS; nvx *= -1; }
+        if (ny < PHYSICS.PARTICLE_RADIUS) { ny = PHYSICS.PARTICLE_RADIUS; nvy *= -1; }
+        if (ny > height - PHYSICS.PARTICLE_RADIUS) { ny = height - PHYSICS.PARTICLE_RADIUS; nvy *= -1; }
       }
 
       return { ...p, x: nx, y: ny, vx: nvx, vy: nvy };
@@ -83,16 +79,40 @@ export const MolecularViewer: React.FC<MolecularViewerProps> = ({
   }, [update]);
 
   return (
-    <svg width={width} height={height} className="rounded-lg overflow-hidden border border-slate-300 bg-white/50">
+    <svg width={width} height={height} className="overflow-visible transition-all duration-500">
+      <defs>
+        <radialGradient id={`glow-${state}`}>
+          <stop offset="0%" stopColor={COLORS[state]} stopOpacity="0.4" />
+          <stop offset="100%" stopColor={COLORS[state]} stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      
+      {/* Container Background */}
+      <rect width={width} height={height} fill={COLORS[state]} fillOpacity="0.1" />
+      
       {particles.map(p => (
-        <circle 
-          key={p.id} 
-          cx={p.x} 
-          cy={p.y} 
-          r={PHYSICS.PARTICLE_RADIUS} 
-          fill={COLORS[state]} 
-          className="transition-colors duration-500"
-        />
+        <g key={p.id}>
+          {state === MatterState.GAS && energyFactor > 1.2 && (
+            <circle 
+              cx={p.x} 
+              cy={p.y} 
+              r={PHYSICS.PARTICLE_RADIUS * 3} 
+              fill={`url(#glow-${state})`}
+            />
+          )}
+          <circle 
+            cx={p.x} 
+            cy={p.y} 
+            r={PHYSICS.PARTICLE_RADIUS} 
+            fill={COLORS[state]} 
+            className="transition-colors duration-500"
+            style={{ 
+              filter: `brightness(${0.9 + energyFactor * 0.1})`,
+              stroke: 'rgba(255,255,255,0.2)',
+              strokeWidth: 1
+            }}
+          />
+        </g>
       ))}
     </svg>
   );
